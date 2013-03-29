@@ -1,0 +1,888 @@
+/*
+ *  detectData.cpp
+ *
+ *  Created on: Mar 18, 2012
+ *      Author: john-d
+ *	In this
+ */
+
+
+//#include "../blackBoxes_prot.h"
+
+
+using namespace std;
+
+void detectData(const string& dataFile, Asset*& pAsset){
+
+	ifstream inFile(dataFile.c_str()); // object for handling file input
+	string row;
+	getline(inFile,row);
+	stringstream srow; srow << row;
+	string column;
+	double dColumn = 0;
+	unsigned int nbrRows = 0;
+	unsigned int before;
+	//used to find out what column I am in, and thus what vector to extract the data to.
+	int columnNbr=0, dateColumn=0, closeColumn=0, exDateColumn=0, strikeColumn=0, bBidColumn=0, bOfferColumn=0, oVolumeColumn=0, ooiColumn=0;
+	int iVolColumn=0, deltaColumn=0, gammaColumn=0, vegaColumn=0, thetaColumn=0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//!!!!!!!! ^|^ up there is where I can see what columns is equal to zero
+	//in order for the detection to be possible later. In order
+	//to make it possible to read data with more columns, just add the class
+	//in concerned Asset, then column name here, then add the condition
+	//in the below getline call that calls the first line. Then add the appropriate
+	//variable below that loop, then add the filling in of new class of vectors
+	//below that. If the data needs sorting, one will need to add a derived
+	//class in OptionsRow header and arrange the detecting of object to return proper type.
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	//find out if we are using a european or american style csv file. Following conditions
+	//can easily be accommodated to use any other delimiter.
+	char delimiter;
+	if(row.find(",") != string::npos) //we have an american style csv file, the delimiter is a comma ','.
+		delimiter = ',';
+	else if(row.find(";") != string::npos) //we have a european style csv file, the delimiter is a semicolon ';'.
+		delimiter = ';';
+	else{ // no delimiter was found. return error
+		cerr << "no suitable delimiter was found.\nProgram terminating.\n";
+		exit(EXIT_FAILURE);
+	}
+
+
+	while (getline(srow, column, delimiter)){
+		++columnNbr;
+		if (((column.find("date") != string::npos) || (column.find("Date") != string::npos))&& (column.length() == 4)) //we have the date column
+			{dateColumn = columnNbr;}
+
+		else if ((column.find("close") != string::npos) || (column.find("Close") != string::npos)) //we have the close column and so on...
+			closeColumn = columnNbr;
+		else if ((column.find("exdate") != string::npos) || (column.find("Exdate") != string::npos) || (column.find("exDate") != string::npos))
+			exDateColumn = columnNbr;
+		else if ((column.find("strike") != string::npos) || (column.find("Strike") != string::npos))
+			strikeColumn = columnNbr;
+		else if ((column.find("bid") != string::npos) || (column.find("Bid") != string::npos))
+			bBidColumn = columnNbr;
+		else if ((column.find("offer") != string::npos) || (column.find("Offer") != string::npos) || (column.find("ask") != string::npos) || (column.find("Ask") != string::npos))
+			bOfferColumn = columnNbr;
+		else if ((column.find("volume") != string::npos) || (column.find("Volume") != string::npos))
+			oVolumeColumn = columnNbr;
+		else if ((column.find("interest") != string::npos) || (column.find("Interest") != string::npos) || (column.find("ooi") != string::npos))
+			ooiColumn = columnNbr;
+		else if ((column.find("impl") != string::npos) || (column.find("Impl") != string::npos) || (column.find("impVol") != string::npos))
+			iVolColumn = columnNbr;
+		else if ((column.find("delta") != string::npos) || (column.find("delta") != string::npos))
+			deltaColumn = columnNbr;
+		else if ((column.find("gamma") != string::npos) || (column.find("Gamma") != string::npos))
+			gammaColumn = columnNbr;
+		else if ((column.find("Vega") != string::npos) || (column.find("vega") != string::npos))
+			vegaColumn = columnNbr;
+		else if ((column.find("theta") != string::npos) || (column.find("Theta") != string::npos))
+			thetaColumn = columnNbr;
+		else if ((column.find("cp") != string::npos) || (column.find("Cp") != string::npos))
+			cout << "the column: \"" << column << "\" was detected to contain the call put flag. If this is wrong, exit program at next opportunity." << endl ;
+		else{
+			cout << "column \"" << column << "\" was not recognized and will be discarded. Resuming extraction"<< endl;
+			}
+
+		}
+
+	if ((dateColumn==0) || (closeColumn==0)) {//if I have insufficient data to use any strategy for Assets of any kind
+		cerr << "data has been detected to be insufficient to backtest or use any useful trading strategy." << endl <<
+				"This can be because the first row of your data file does not contain headers or because they" << endl <<
+				"are wrongly named. If so, change them as required to use this program. " << endl;
+		cerr << "Program terminating.\n";
+		exit(EXIT_FAILURE);
+	}
+
+
+
+
+	else{ //data is usable
+
+
+			// we initialize here all the possible vectors. Values will be added to them only if there is the header of the vector was found and thus there is data
+			vector<unsigned int>dateS; vector<double>closeS; vector<unsigned int>exDateS;
+			vector<double>strikeS; vector<double>bBidS; vector<double>bOfferS;
+			vector<double>opVolumeS; vector<double>ooiS;vector<double>impVolS;
+			vector<double>deltaS; vector<double>gammaS; vector<double>vegaS;
+			vector<double>thetaS;
+			/////!!!! names ending in S are actually vectors.
+
+			register unsigned int i; //using registered memory allocation for loop variable i.
+
+			string sortOrNot;
+			if ((ooiColumn > 0) && ((dataFile.find("_bPuts.csv") != string::npos) ||
+					(dataFile.find("_bCalls.csv") != string::npos) || (dataFile.find("_sorted.csv") != string::npos))) //data was created by this program. Assume sorted
+				sortOrNot = "n"; //do not sort data.
+			else if ((ooiColumn > 0) && (dataFile.find("_bPuts.csv") == string::npos) &&
+					(dataFile.find("_bCalls.csv") == string::npos) && (dataFile.find("_sorted.csv") == string::npos)){ //we have unrecognized options data
+
+				cout << "Data contains options. Does the data need sorting? Enter yes(y) or no(n). If unsure, press yes(y): ";  cin >> sortOrNot; cout << endl;
+				while ((sortOrNot!= "yes") && (sortOrNot!= "no") && (sortOrNot!= "y") && (sortOrNot!= "n")){
+							cout << "The value you entered is not valid. Please enter yes(y) or no(n):" << endl;
+							cin >> sortOrNot;
+				}
+			}
+			else{ //data contains no options, or at least no usable ones (if this is the case, the code below will make it return an error)
+				sortOrNot = "n";
+			}
+
+			if ((sortOrNot == "yes") || (sortOrNot == "y")) {
+
+
+				//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				//we have to sort the data. This might be pretty long.
+				//this routine should happen once per file and this is why we go from multiple vectors to vector of objects back to multiple vector.
+				//So that all the times where data is already sorted, there is no need to even go through the vector of objects. Had we had the need
+				//to sort every time we ran the program, it would have been optimal to extract a vector of objects to sort and then to
+				//transform it to multiple vectors. This is not our situation, thus, our procedure is the one of:
+				//multiple vectors => vector of objects => sort vector of object => transform back to multiple vectors.
+				//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+				cout << "Extracting and Sorting data: "<< endl;
+				before = time(0);
+
+				//we first detect what type of options object we are dealing with
+				//and save all the data to two single vectors of row objects in order to sort columns in parallel.
+				vector<OptionsRow*>OR;
+				unsigned int date, exDate;
+				double close, strike, bBid, bOffer, opVolume, ooi,
+						impVol, delta,gamma, vega, theta, columnNbr;
+				//int pos;
+				unsigned int rowNbr = 0;
+
+				while(getline(inFile,row)){
+					columnNbr = 0;
+					++rowNbr;
+
+					//if(rowNbr%1000 == 0){
+						//pos = inFile.tellg();
+						//inFile.close();
+						//inFile.open(dataFile.c_str());
+						//inFile.seekg(pos);
+						//cout << "inFile: " << sizeof(inFile) << " srow: " << sizeof(srow) << " calls: " << sizeof(ORC) << endl; //"memory should be flushed at:" << rowNbr << " " <<
+
+					//}
+					srow.clear();//get rid of failbit
+					srow << row;
+					while (getline(srow, column, delimiter)){
+						++columnNbr;
+						if (columnNbr == dateColumn)
+							date = DMYToExcelSerialDate(column);
+						else if (columnNbr == exDateColumn)
+							exDate = DMYToExcelSerialDate(column);
+						else{
+							if (columnNbr == closeColumn)
+								close = atof(column.c_str());
+							else if (columnNbr == strikeColumn)
+								strike = atof(column.c_str());
+							else if (columnNbr == bBidColumn)
+								bBid = atof(column.c_str());
+							else if (columnNbr == bOfferColumn)
+								bOffer = atof(column.c_str());
+							else if (columnNbr == oVolumeColumn)
+								opVolume = atof(column.c_str());
+							else if (columnNbr == ooiColumn)
+								ooi = atof(column.c_str());
+							else if (columnNbr == iVolColumn)
+								impVol = atof(column.c_str());
+							else if (columnNbr == deltaColumn)
+								delta = atof(column.c_str());
+							else if (columnNbr == gammaColumn)
+								gamma = atof(column.c_str());
+							else if (columnNbr == vegaColumn)
+								vega = atof(column.c_str());
+							else if (columnNbr == thetaColumn)
+								theta = atof(column.c_str());
+
+
+						}
+
+					}
+
+					if (gammaColumn != 0){ //we have an OptionsGreeks object.
+							OR.push_back(new OptionsRowGreeks(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi, impVol, delta, gamma, vega, theta));
+					}
+
+					else if ((gammaColumn == 0) && (deltaColumn != 0)){ //we have an OptionsDelta object.
+							OR.push_back(new OptionsRowDelta(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi, impVol, delta));
+					}
+
+					else if ((gammaColumn == 0) && (deltaColumn == 0) && (iVolColumn != 0)){ //we have an OptionsImpVol object.
+							OR.push_back(new OptionsRowImpVol(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi, impVol));
+
+					}
+
+					else { //best guess is we must have a standard Options object
+							OR.push_back(new OptionsRow(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi));
+
+					}
+
+
+				}
+
+				nbrRows = OR.size();
+				//Now that vectors are filled, sort them as wanted.
+				sortOptionsData(OR);
+				cout << "done sorting options" << endl;
+				//copy data to two separate files?
+				//copyToFiles(dataFile, nbrCallRows, nbrPutRows, ORC, ORP, delimiter);
+
+				//we now replace the vectors first extracted with their sorted counterparts.
+
+				if (gammaColumn != 0){ //we have an OptionsRowGreeks object.
+					for(i=0;i<nbrRows;++i)
+					{OR[i]->fillBackVectors(dateS, closeS, exDateS, strikeS, bBidS,
+							bOfferS, opVolumeS, ooiS, impVolS, deltaS, gammaS,
+							vegaS, thetaS); delete OR[i];}
+
+				}
+				else if ((gammaColumn == 0) && (deltaColumn != 0)){ //we have an OptionsRowDelta object
+					for(i=0;i<nbrRows;++i)
+					{OR[i]->fillBackVectors(dateS, closeS, exDateS, strikeS, bBidS,
+							bOfferS, opVolumeS, ooiS, impVolS, deltaS); delete OR[i];}
+				}
+
+
+				else if ((gammaColumn == 0) && (deltaColumn == 0) && (iVolColumn != 0)){ //we have an OptionsRowImpVol object
+					for(i=0;i<nbrRows;++i)
+					{OR[i]->fillBackVectors(dateS, closeS, exDateS, strikeS, bBidS,
+							bOfferS, opVolumeS, ooiS, impVolS); delete OR[i];}
+				}
+
+				else{ //best guess is we must have a standard OptionsRow object
+					for(i=0;i<nbrRows;++i)
+					{OR[i]->fillBackVectors(dateS, closeS, exDateS, strikeS, bBidS,
+							bOfferS, opVolumeS, ooiS); delete OR[i];}
+				}
+
+			}
+
+
+
+
+
+
+			else {//data is already sorted
+					before = time(0);
+
+					while(getline(inFile,row)){
+						columnNbr = 0;
+						srow.clear(); //get rid of failbit
+						srow << row;
+						while (getline(srow, column, delimiter)){
+							++columnNbr;
+							if (columnNbr == dateColumn)
+								dateS.push_back(DMYToExcelSerialDate(column));
+							else if (columnNbr == exDateColumn)
+								exDateS.push_back(DMYToExcelSerialDate(column));
+							else{
+								dColumn = atof(column.c_str());
+								if (columnNbr == closeColumn)
+									closeS.push_back(dColumn);
+								else if (columnNbr == strikeColumn)
+									strikeS.push_back(dColumn);
+								else if (columnNbr == bBidColumn)
+									bBidS.push_back(dColumn);
+								else if (columnNbr == bOfferColumn)
+									bOfferS.push_back(dColumn);
+								else if (columnNbr == oVolumeColumn)
+									opVolumeS.push_back(dColumn);
+								else if (columnNbr == ooiColumn)
+									ooiS.push_back(dColumn);
+								else if (columnNbr == iVolColumn)
+									impVolS.push_back(dColumn);
+								else if (columnNbr == deltaColumn)
+									deltaS.push_back(dColumn);
+								else if (columnNbr == gammaColumn)
+									gammaS.push_back(dColumn);
+								else if (columnNbr == vegaColumn)
+									vegaS.push_back(dColumn);
+								else if (columnNbr == thetaColumn)
+									thetaS.push_back(dColumn);
+
+							}
+
+						}
+
+
+				} //end of while loop
+
+					nbrRows = dateS.size(); //implemented in else block, as it has be done so in if block.
+			}
+
+
+	} //close of big else condition used to know if data is usable
+
+	//file is now extracted
+
+	cout << "It took " << time(0) - before << " seconds to extract " << nbrRows << "lines" <<endl;
+
+	//data is now extracted program will proceed to saving it into the required object
+
+
+
+
+
+}
+
+
+
+void detectCpData(const string& dataFile, CpOptions*& pCpOptions){ //function used to detect data if data contains the cp_flag
+
+	ifstream inFile(dataFile.c_str()); // object for handling file input
+	string row;
+	getline(inFile,row);
+	stringstream srow; srow << row;
+	string column;
+	double dColumn = 0;
+	unsigned int before;
+	unsigned int nbrCallRows=0, nbrPutRows=0;
+	//used to find out what column I am in, and thus what vector to extract the data to.
+	int columnNbr=0, dateColumn=0, closeColumn=0, exDateColumn=0, strikeColumn=0, bBidColumn=0, bOfferColumn=0, oVolumeColumn=0, ooiColumn=0;
+	int iVolColumn=0, deltaColumn=0, gammaColumn=0, vegaColumn=0, thetaColumn=0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//!!!!!!!! ^|^ up there is where I can see what columns is equal to zero
+	//in order for the detection to be possible later. In order
+	//to make it possible to read data with more columns, just add the class
+	//in Options header, then column name here, then add the condition
+	//in the below getline call that calls the first line. Then add the appropriate
+	//vectors below that loop, then add the filling in of those vectors
+	//below that. If the data needs sorting, one will need to add a derived
+	//class in OptionsRow header and arrange the detecting of object to return proper type.
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	//find out if we are using a european or american style csv file. Following conditions
+	//can easily be accommodated to use any other delimiter.
+	char delimiter;
+	if(row.find(",") != string::npos) //we have an american style csv file, the delimiter is a comma ','.
+		delimiter = ',';
+	else if(row.find(";") != string::npos) //we have a european style csv file, the delimiter is a semicolon ';'.
+		delimiter = ';';
+	else{ // no delimiter was found. return error
+		cerr << "no suitable delimiter was found.\nProgram terminating.\n";
+		exit(EXIT_FAILURE);
+	}
+
+
+	while (getline(srow, column, delimiter)){
+		++columnNbr;
+		if (((column.find("date") != string::npos) || (column.find("Date") != string::npos))&& (column.length() == 4)) //we have the date column
+			{dateColumn = columnNbr;}
+
+		else if ((column.find("close") != string::npos) || (column.find("Close") != string::npos)) //we have the close column and so on...
+			closeColumn = columnNbr;
+		else if ((column.find("exdate") != string::npos) || (column.find("Exdate") != string::npos) || (column.find("exDate") != string::npos))
+			exDateColumn = columnNbr;
+		else if ((column.find("strike") != string::npos) || (column.find("Strike") != string::npos))
+			strikeColumn = columnNbr;
+		else if ((column.find("bid") != string::npos) || (column.find("Bid") != string::npos))
+			bBidColumn = columnNbr;
+		else if ((column.find("offer") != string::npos) || (column.find("Offer") != string::npos) || (column.find("ask") != string::npos) || (column.find("Ask") != string::npos))
+			bOfferColumn = columnNbr;
+		else if ((column.find("volume") != string::npos) || (column.find("Volume") != string::npos))
+			oVolumeColumn = columnNbr;
+		else if ((column.find("interest") != string::npos) || (column.find("Interest") != string::npos) || (column.find("ooi") != string::npos))
+			ooiColumn = columnNbr;
+		else if ((column.find("impl") != string::npos) || (column.find("Impl") != string::npos) || (column.find("impVol") != string::npos))
+			iVolColumn = columnNbr;
+		else if ((column.find("delta") != string::npos) || (column.find("delta") != string::npos))
+			deltaColumn = columnNbr;
+		else if ((column.find("gamma") != string::npos) || (column.find("Gamma") != string::npos))
+			gammaColumn = columnNbr;
+		else if ((column.find("Vega") != string::npos) || (column.find("vega") != string::npos))
+			vegaColumn = columnNbr;
+		else if ((column.find("theta") != string::npos) || (column.find("Theta") != string::npos))
+			thetaColumn = columnNbr;
+		else if ((column.find("cp") != string::npos) || (column.find("Cp") != string::npos))
+			cout << "the column: \"" << column << "\" was detected to contain the call put flag. If this is wrong, exit program at next opportunity." << endl ;
+		else{
+			cout << "column \"" << column << "\" was not recognized and will be discarded. Resuming extraction"<< endl;
+			}
+
+		}
+
+	if ((dateColumn==0) || (closeColumn==0) || (exDateColumn==0)
+			|| (strikeColumn==0) || (bBidColumn==0) || (bOfferColumn==0) || (oVolumeColumn==0)
+			|| (ooiColumn==0)) {//if I have insufficient data to use any strategy for options
+		cerr << "data has been detected to be insufficient to backtest or use any useful trading strategy." << endl <<
+				"This can be because the first row of your data file does not contain headers or because they" << endl <<
+				"are wrongly named. If so, change them as required to use this program. " << endl;
+		cerr << "Program terminating.\n";
+		exit(EXIT_FAILURE);
+	}
+
+
+
+	else{ //data is usable
+
+			// we initialize here all the possible vectors. Values will be added to them only if there is the header of the vector was found and thus there is data
+			vector<unsigned int>callDate; vector<unsigned int>putDate; vector<double>callClose;
+			vector<double>putClose; vector<unsigned int>callExDate; vector<unsigned int>putExDate;
+			vector<double>callStrike; vector<double>putStrike; vector<double>callBBid;
+			vector<double>putBBid; vector<double>callBOffer; vector<double>putBOffer;
+			vector<double>callOpVolume; vector<double>putOpVolume; vector<double>callOoi;
+			vector<double>putOoi; vector<double>callImpVol; vector<double>putImpVol;
+			vector<double>callDelta; vector<double>putDelta; vector<double>callGamma;
+			vector<double>putGamma; vector<double>callVega; vector<double>putVega;
+			vector<double>callTheta; vector<double>putTheta;
+
+			string sortOrNot;
+			cout << "does the data need sorting? Enter yes(y) or no(n). If unsure, press no(n): ";  cin >> sortOrNot; cout << endl;
+
+			register unsigned int i; //using registered memory allocation for loop variable i.
+
+
+			while ((sortOrNot!= "yes") && (sortOrNot!= "no") && (sortOrNot!= "y") && (sortOrNot!= "n")){
+						cout << "The value you entered is not valid. Please enter yes(y) or no(n):" << endl;
+						cin >> sortOrNot;
+			}
+
+			if ((sortOrNot == "yes") || (sortOrNot == "y")) {
+
+
+				//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				//we have to sort the data. This might be pretty long.
+				//this routine should happen once per file and this is why we go from multiple vectors to vector of objects back to multiple vector.
+				//So that all the times where data is already sorted, there is no need to even go through the vector of objects. Had we had the need
+				//to sort every time we ran the program, it would have been optimal to extract a vector of objects to sort and then to
+				//transform it to multiple vectors. This is not our situation, thus, our procedure is the one of:
+				//multiple vectors => vector of objects => sort vector of object => transform back to multiple vectors.
+				//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+				cout << "Extracting and Sorting data: "<< endl;
+				before = time(0);
+
+				//we first detect what type of options object we are dealing with
+				//and save all the data to two single vectors of row objects in order to sort columns in parallel.
+				vector<OptionsRow*>ORC;
+				vector<OptionsRow*>ORP;
+				unsigned int date, exDate;
+				double close, strike, bBid, bOffer, opVolume, ooi,
+						impVol, delta,gamma, vega, theta, columnNbr;
+				//int pos;
+				unsigned int rowNbr = 0;
+
+				while(getline(inFile,row)){
+					columnNbr = 0;
+					++rowNbr;
+
+					//if (rowNbr % 499999 == 0 ){
+					//	cout << "line " << rowNbr << " reached" << endl;
+					//	cin >> dummy;
+					//}
+					//if(rowNbr%1000 == 0){
+						//pos = inFile.tellg();
+						//inFile.close();
+						//inFile.open(dataFile.c_str());
+						//inFile.seekg(pos);
+						//cout << "inFile: " << sizeof(inFile) << " srow: " << sizeof(srow) << " calls: " << sizeof(ORC) << endl; //"memory should be flushed at:" << rowNbr << " " <<
+
+					//}
+					srow.clear();//get rid of failbit
+					//srow.seekg (0, ios::beg);
+					//srow.sync(); // delete last read line as was already added to file.
+					srow << row;
+					while (getline(srow, column, delimiter)){
+						++columnNbr;
+						if (columnNbr == dateColumn)
+							date = DMYToExcelSerialDate(column);
+						else if (columnNbr == exDateColumn)
+							exDate = DMYToExcelSerialDate(column);
+						else{
+							if (columnNbr == closeColumn)
+								close = atof(column.c_str());
+							else if (columnNbr == strikeColumn)
+								strike = atof(column.c_str());
+							else if (columnNbr == bBidColumn)
+								bBid = atof(column.c_str());
+							else if (columnNbr == bOfferColumn)
+								bOffer = atof(column.c_str());
+							else if (columnNbr == oVolumeColumn)
+								opVolume = atof(column.c_str());
+							else if (columnNbr == ooiColumn)
+								ooi = atof(column.c_str());
+							else if (columnNbr == iVolColumn)
+								impVol = atof(column.c_str());
+							else if (columnNbr == deltaColumn)
+								delta = atof(column.c_str());
+							else if (columnNbr == gammaColumn)
+								gamma = atof(column.c_str());
+							else if (columnNbr == vegaColumn)
+								vega = atof(column.c_str());
+							else if (columnNbr == thetaColumn)
+								theta = atof(column.c_str());
+
+
+						}
+
+					}
+
+					if (gammaColumn != 0){ //we have an OptionsGreeks object.
+						if(row.find("C") != string::npos){ //we have a call
+							ORC.push_back(new OptionsRowGreeks(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi, impVol, delta, gamma, vega, theta));
+						}
+
+						else{
+						ORP.push_back(new OptionsRowGreeks(date, close, exDate, strike, bBid,
+							bOffer, opVolume, ooi, impVol, delta, gamma, vega, theta));
+						}
+
+					}
+
+					else if ((gammaColumn == 0) && (deltaColumn != 0)){ //we have an OptionsDelta object.
+						if(row.find("C") != string::npos){ //we have a call
+							ORC.push_back(new OptionsRowDelta(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi, impVol, delta));
+						}
+
+						else{
+						ORP.push_back(new OptionsRowDelta(date, close, exDate, strike, bBid,
+							bOffer, opVolume, ooi, impVol, delta));
+						}
+
+					}
+
+					else if ((gammaColumn == 0) && (deltaColumn == 0) && (iVolColumn != 0)){ //we have an OptionsImpVol object.
+						if(row.find("C") != string::npos){ //we have a call
+							ORC.push_back(new OptionsRowImpVol(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi, impVol));
+						}
+
+						else{
+						ORP.push_back(new OptionsRowImpVol(date, close, exDate, strike, bBid,
+							bOffer, opVolume, ooi, impVol));
+						}
+
+					}
+
+					else { //best guess is we must have a standard Options object
+						if(row.find("C") != string::npos){ //we have a call
+							ORC.push_back(new OptionsRow(date, close, exDate, strike, bBid,
+								bOffer, opVolume, ooi));
+						}
+
+						else{
+						ORP.push_back(new OptionsRow(date, close, exDate, strike, bBid,
+							bOffer, opVolume, ooi));
+						}
+
+					}
+
+
+				}
+
+				nbrCallRows = ORC.size();
+				nbrPutRows = ORP.size();
+				//Now that vectors are filled, sort them as wanted.
+				sortOptionsData(ORC);
+				cout << "done sorting calls" << endl;
+				sortOptionsData(ORP);
+				cout << "done sorting puts" << endl;
+				//copy data to two separate files?
+				copyToFiles(dataFile, nbrCallRows, nbrPutRows, ORC, ORP, delimiter);
+
+				//we now replace the vectors first extracted with their sorted counterparts.
+
+
+				if (gammaColumn != 0){ //we have an OptionsRowGreeks object.
+					for(i=0;i<nbrCallRows;++i)
+					{ORC[i]->fillBackVectors(callDate, callClose, callExDate, callStrike, callBBid,
+							callBOffer, callOpVolume, callOoi, callImpVol, callDelta, callGamma,
+							callVega, callTheta); delete ORC[i];}
+					for(i=0;i<nbrPutRows;++i)
+					{ORP[i]->fillBackVectors(putDate, putClose, putExDate, putStrike, putBBid,
+							putBOffer, putOpVolume, putOoi, putImpVol, putDelta, putGamma,
+							putVega, putTheta); delete ORP[i];}
+
+				}
+				else if ((gammaColumn == 0) && (deltaColumn != 0)){ //we have an OptionsRowDelta object
+					for(i=0;i<nbrCallRows;++i)
+					{ORC[i]->fillBackVectors(callDate, callClose, callExDate, callStrike, callBBid,
+							callBOffer, callOpVolume, callOoi, callImpVol, callDelta); delete ORC[i];}
+					for(i=0;i<nbrPutRows;++i)
+					{ORP[i]->fillBackVectors(putDate, putClose, putExDate, putStrike, putBBid,
+							putBOffer, putOpVolume, putOoi, putImpVol, putDelta); delete ORP[i];}
+				}
+
+				else if ((gammaColumn == 0) && (deltaColumn == 0) && (iVolColumn != 0)){ //we have an OptionsRowImpVol object
+					for(i=0;i<nbrCallRows;++i)
+					{ORC[i]->fillBackVectors(callDate, callClose, callExDate, callStrike, callBBid,
+							callBOffer, callOpVolume, callOoi, callImpVol); delete ORC[i];}
+					for(i=0;i<nbrPutRows;++i)
+					{ORP[i]->fillBackVectors(putDate, putClose, putExDate, putStrike, putBBid,
+							putBOffer, putOpVolume, putOoi, putImpVol); delete ORP[i];}
+				}
+
+				else{ //best guess is we must have a standard OptionsRow object
+					for(i=0;i<nbrCallRows;++i)
+					{ORC[i]->fillBackVectors(callDate, callClose, callExDate, callStrike, callBBid,
+							callBOffer, callOpVolume, callOoi); delete ORC[i];}
+					for(i=0;i<nbrPutRows;++i)
+					{ORP[i]->fillBackVectors(putDate, putClose, putExDate, putStrike, putBBid,
+							putBOffer, putOpVolume, putOoi); delete ORP[i];}
+				}
+
+			}
+
+
+
+
+
+
+			else {//data is already sorted
+					before = time(0);
+
+					nbrCallRows = nbrPutRows = 0; //set count number or rows to 0
+
+					while(getline(inFile,row)){
+						columnNbr = 0;
+						if(row.find("C") != string::npos){ //we have a call
+							srow.clear(); //get rid of failbit
+							//srow.seekg (0, ios::beg);
+							//srow.sync(); // delete last read line as was already added to file.
+							srow << row;
+							while (getline(srow, column, delimiter)){
+								++columnNbr;
+		 						if (columnNbr == dateColumn)
+									callDate.push_back(DMYToExcelSerialDate(column));
+								else if (columnNbr == exDateColumn)
+									callExDate.push_back(DMYToExcelSerialDate(column));
+								else{
+									dColumn = atof(column.c_str());
+									if (columnNbr == closeColumn)
+										callClose.push_back(dColumn);
+									else if (columnNbr == strikeColumn)
+										callStrike.push_back(dColumn);
+									else if (columnNbr == bBidColumn)
+										callBBid.push_back(dColumn);
+									else if (columnNbr == bOfferColumn)
+										callBOffer.push_back(dColumn);
+									else if (columnNbr == oVolumeColumn)
+										callOpVolume.push_back(dColumn);
+									else if (columnNbr == ooiColumn)
+										callOoi.push_back(dColumn);
+									else if (columnNbr == iVolColumn)
+										callImpVol.push_back(dColumn);
+									else if (columnNbr == deltaColumn)
+										callDelta.push_back(dColumn);
+									else if (columnNbr == gammaColumn)
+										callGamma.push_back(dColumn);
+									else if (columnNbr == vegaColumn)
+										callVega.push_back(dColumn);
+									else if (columnNbr == thetaColumn)
+										callTheta.push_back(dColumn);
+
+
+								}
+
+							}
+
+
+						}
+
+						else{ //we have a put
+							srow.clear(); //get rid of eofbit (and consequently failbit, as failbit is set if eofbit is set too).
+							srow << row;
+							while (getline(srow, column, delimiter)){
+								++columnNbr;
+								if (columnNbr == dateColumn)
+									putDate.push_back(DMYToExcelSerialDate(column));
+								else if (columnNbr == exDateColumn)
+									putExDate.push_back(DMYToExcelSerialDate(column));
+								else{
+									dColumn = atof(column.c_str());
+									if (columnNbr == closeColumn)
+										putClose.push_back(dColumn);
+									else if (columnNbr == strikeColumn)
+										putStrike.push_back(dColumn);
+									else if (columnNbr == bBidColumn)
+										putBBid.push_back(dColumn);
+									else if (columnNbr == bOfferColumn)
+										putBOffer.push_back(dColumn);
+									else if (columnNbr == oVolumeColumn)
+										putOpVolume.push_back(dColumn);
+									else if (columnNbr == ooiColumn)
+										putOoi.push_back(dColumn);
+									else if (columnNbr == iVolColumn)
+										putImpVol.push_back(dColumn);
+									else if (columnNbr == deltaColumn)
+										putDelta.push_back(dColumn);
+									else if (columnNbr == gammaColumn)
+										putGamma.push_back(dColumn);
+									else if (columnNbr == vegaColumn)
+										putVega.push_back(dColumn);
+									else if (columnNbr == thetaColumn)
+										putTheta.push_back(dColumn);
+
+
+								}//end of small else loop
+							} //end of small else
+
+						} //end of else loop
+					} //end of while loop
+
+					nbrCallRows = callDate.size(); //implemented in else block, as it has be done so in if block.
+					nbrPutRows = putDate.size();
+
+			}
+			cout << callDate[nbrCallRows-1] << endl;
+
+	} //close of big else condition used to know if data is usable
+
+	//extraction is finished
+
+	cout << "It took " << time(0) - before << " seconds to extract " << nbrPutRows+nbrCallRows << "lines" <<endl;
+	cin >> before;
+
+	//data is now extracted program will proceed to saving it into the required object of calls and puts objects of vectors.
+
+
+}
+
+
+
+
+
+inline bool exDateComp (OptionsRow* a, OptionsRow* b){return (a->exDate < b->exDate);}
+
+
+inline bool strikeComp (OptionsRow* a, OptionsRow* b){return (a->strike < b->strike);}
+
+
+void sortOptionsData (vector<OptionsRow*>&ORows ){
+	unsigned int begDateIndex = 0, endDateIndex = 0, begExIndex = 0, endExIndex = 0, dataSize = ORows.size(); //variables used to run through the vector
+	while (begDateIndex < dataSize){ //while I am not out of the date bounds
+
+		while(ORows[endDateIndex]->date == ORows[begDateIndex]->date){ //while I am on one date
+			++endDateIndex;
+			if(endDateIndex == dataSize) //if data read was the end of the vector
+				break; // break out of loop
+		}
+
+		sort(ORows.begin() + begDateIndex, ORows.begin() + endDateIndex, exDateComp); // do not sort last of row which has different date if exception is true
+		begDateIndex = endDateIndex; //update begDateIndex to start at first of next date.
+
+		while (begExIndex < begDateIndex){// while I am not out of the expiration date bounds.
+
+			while(ORows[endExIndex]->exDate == ORows[begExIndex]->exDate){ //while I am on one expiration date
+				++endExIndex;
+				if(endExIndex == begDateIndex)
+					break; //break out of loop in order not to try to access an out of bound object/row
+			}
+
+			sort(ORows.begin() + begExIndex, ORows.begin() + endExIndex, strikeComp);
+			begExIndex = endExIndex; //update begExIndex to start at first of next expiration date
+
+		}
+	}
+}
+
+void copyToFiles(const string& dataFile, const double& callRows, const double& putRows, const vector<OptionsRow*>&OCalls, const vector<OptionsRow*>&OPuts, const char& delim){
+
+	string copyToFileOrNot;
+	cout << "Should data be copied to two files in order to avoid sorting next time. Enter yes(y) or no(n) to save to files or not: ";
+	cin >> copyToFileOrNot; cout << endl;
+
+	while ((copyToFileOrNot!= "yes") && (copyToFileOrNot!= "no") && (copyToFileOrNot!= "y") && (copyToFileOrNot!= "n")){
+				cout << "The value you entered is not valid. Please enter yes(y) or no(n):" << endl;
+				cin >> copyToFileOrNot;
+	}
+
+	if ((copyToFileOrNot == "yes") || (copyToFileOrNot == "y")) { 		//copying the data, this might take some time.
+		cout << "copying data, this might take some time."<< endl;
+
+	size_t found; //create size_t object to manage position in string.
+	found=dataFile.find_last_of("."); //find last point.
+	string callsFile = dataFile.substr(0,found); callsFile.append("_bCalls.csv"); //create new string with new name just for calls.
+	string putsFile = dataFile.substr(0,found); putsFile.append("_bPuts.csv"); //create new string with new name just for puts.
+
+	ofstream outCalls(callsFile.c_str());
+	outCalls.precision(10);
+
+	ofstream outPuts(putsFile.c_str());
+	outPuts.precision(10);
+
+	OCalls[0]->printHeaders(outCalls, delim); //print calls header
+	OPuts[0]->printHeaders(outPuts, delim); //print put header
+
+	unsigned int i;
+	for (i=0; i<callRows; ++i)
+		OCalls[i]->printToFile(outCalls, delim);
+	cout << "calls data was saved to: " << callsFile << endl;
+	for (i=0; i<putRows; ++i)
+		OPuts[i]->printToFile(outPuts, delim);
+	cout << "puts data was saved to: " << putsFile << endl << endl;
+
+	}
+
+
+	else {} //do nothing
+
+}
+
+void copyToSingleFile(const string& dataFile, const double& nbrRows, const vector<OptionsRow*>&options, const char& delim){
+
+	string copyToFileOrNot;
+	cout << "Should data be copied to a file in order to avoid sorting next time. Enter yes(y) or no(n) to save to files or not: ";
+	cin >> copyToFileOrNot; cout << endl;
+
+	while ((copyToFileOrNot!= "yes") && (copyToFileOrNot!= "no") && (copyToFileOrNot!= "y") && (copyToFileOrNot!= "n")){
+				cout << "The value you entered is not valid. Please enter yes(y) or no(n):" << endl;
+				cin >> copyToFileOrNot;
+	}
+
+	if ((copyToFileOrNot == "yes") || (copyToFileOrNot == "y")) { 		//copying the data, this might take some time.
+		cout << "copying data, this might take some time."<< endl;
+
+	size_t found; //create size_t object to manage position in string.
+	found=dataFile.find_last_of("."); //find last point.
+	string optionsFile = dataFile.substr(0,found); optionsFile.append("_sorted.csv"); //create new string with new name for sorted data.
+
+	ofstream outOptions(optionsFile.c_str());
+	//outOptions.open("realdata.csv");
+	outOptions.precision(10);
+
+	options[0]->printHeaders(outOptions, delim); //print option header
+
+	unsigned int i;
+	for (i=0; i<nbrRows; ++i)
+		options[i]->printToFile(outOptions, delim);
+
+	cout << "data was saved to: " << optionsFile << endl;
+
+	}
+	else {} //do nothing
+
+}
+
+
+/*
+// just a stub to print puts data to console.
+
+for (i=0; i<nbrPutRows; ++i){
+		 cout << putDate[i] << ',' << putClose[i] << ',' << putExDate[i] << ',' << putStrike[i] << ','
+			  << putBBid[i] << ',' << putBOffer[i] << ',' << putOpVolume[i] << ',' << putOoi[i] << ','
+			  << putImpVol[i] << ','<< putDelta[i] << endl;
+}
+cout << putDate.size() << endl;
+
+for (i=0; i<nbrRows; ++i){
+	 cout << date[i] << ',' << close[i] << ',' << exDate[i] << ',' << strike[i] << ','
+		  << bBid[i] << ',' << bOffer[i] << ',' << opVolume[i] << ',' << ooi[i] << ','
+		  << impVol[i] << ','<< delta[i] << endl;
+}
+cout << date.size() << endl;
+
+
+*/
+

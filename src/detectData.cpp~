@@ -1,0 +1,173 @@
+/*
+ * cleanData.cpp
+ *
+ *  Created on: Mar 18, 2012
+ *      Author: john-d
+ *	In this
+ */
+
+
+#include "blackBoxes_prot.h"
+
+
+using namespace std;
+
+Asset* detectData(string fileToRead)
+{
+
+}
+
+cpOptions* detectCpData(string fileToRead) //function used to detect data if data contains the cp_flag
+{
+	ifstream inFile(fileToRead.c_str()); // object for handling file input
+	if (!inFile.is_open()) // failed to open file
+	{
+	cerr << "Could not open the file " << endl;
+	cerr << "Program terminating.\n";
+	exit(EXIT_FAILURE);
+	}
+	string row;
+	getline(inFile,row);
+	stringstream srow; srow << row;
+	string column;
+	double dColumn = 0;
+	//used to find out what column I am in, as thus what vector to extract the data to.
+	int columnNbr=0, dateColumn=0, closeColumn=0, exDateColumn=0, strikeColumn=0, bBidColumn=0, bOfferColumn=0, oVolumeColumn=0, ooiColumn=0;
+	int iVolColumn=0, deltaColumn=0, gammaColumn=0, vegaColumn=0, thetaColumn=0;
+	while (getline(srow, column, ',')){
+		++columnNbr;
+		if (((column.find("date") != string::npos) || (column.find("Date") != string::npos))&& (column.length() == 4)) //we have the date column
+			{dateColumn = columnNbr;}
+
+		else if ((column.find("close") != string::npos) || (column.find("Close") != string::npos)) //we have the close column and so on...
+			closeColumn = columnNbr;
+		else if ((column.find("exdate") != string::npos) || (column.find("Exdate") != string::npos))
+			exDateColumn = columnNbr;
+		else if ((column.find("strike") != string::npos) || (column.find("Strike") != string::npos))
+			strikeColumn = columnNbr;
+		else if ((column.find("bid") != string::npos) || (column.find("Bid") != string::npos))
+			bBidColumn = columnNbr;
+		else if ((column.find("offer") != string::npos) || (column.find("Offer") != string::npos) || (column.find("ask") != string::npos) || (column.find("Ask") != string::npos))
+			bOfferColumn = columnNbr;
+		else if ((column.find("volume") != string::npos) || (column.find("Volume") != string::npos))
+			oVolumeColumn = columnNbr;
+		else if ((column.find("interest") != string::npos) || (column.find("Interest") != string::npos))
+			ooiColumn = columnNbr;
+		else if ((column.find("impl") != string::npos) || (column.find("Impl") != string::npos))
+			iVolColumn = columnNbr;
+		else if ((column.find("delta") != string::npos) || (column.find("delta") != string::npos))
+			deltaColumn = columnNbr;
+		else if ((column.find("gamma") != string::npos) || (column.find("Gamma") != string::npos))
+			gammaColumn = columnNbr;
+		else if ((column.find("Vega") != string::npos) || (column.find("vega") != string::npos))
+			vegaColumn = columnNbr;
+		else if ((column.find("theta") != string::npos) || (column.find("Theta") != string::npos))
+			thetaColumn = columnNbr;
+		else{
+			cout << "column \"" << column << "\" was not recognized and will be discarded. To add support for it or if this column was badly read, press quit to exit. Anything else will resume extraction"<< endl;
+			string exitOrNot; cin >> exitOrNot;
+			if ((exitOrNot== "quit") || (exitOrNot== "q"))
+				{cerr << "unrecognized column " << endl; cerr << "Program terminating.\n";exit(EXIT_FAILURE);}
+			else{}
+			}
+
+		}
+	cout << srow.rdstate() <<endl;
+	// we initialize here all the possible vectors. Values will be added to them only if there is the header of the vector was found and thus there is data
+	vector<double>callDate; vector<double>putDate; vector<double>callClose; vector<double>putClose; vector<double>callExDate; vector<double>putExDate;
+	vector<double>callStrike; vector<double>putStrike; vector<double>callBBid; vector<double>putBBid; vector<double>callBOffer; vector<double>putBOffer;
+	vector<double>callOpVolume; vector<double>putOpVolume; vector<double>callOoi; vector<double>putOoi; vector<double>callImpVol; vector<double>putImpVol;
+	vector<double>callDelta; vector<double>putDelta; vector<double>callGamma; vector<double>putGamma; vector<double>callVega; vector<double>putVega;
+	vector<double>callTheta; vector<double>putTheta;
+
+	while(getline(inFile,row)){
+		columnNbr = 0;
+		if(row.find("C") != string::npos){ //we have a call
+			srow.clear(); //get rid of failbit
+			srow << row;
+			while (getline(srow, column, ',')){
+				++columnNbr;
+				if (columnNbr == dateColumn)
+					callDate.push_back(DMYToExcelSerialDate(column));
+				else{
+					dColumn = atof(column.c_str());
+					if (columnNbr == closeColumn)
+						callClose.push_back(dColumn);
+					else if (columnNbr == exDateColumn)
+						callExDate.push_back(dColumn);
+					else if (columnNbr == strikeColumn)
+						callStrike.push_back(dColumn);
+					else if (columnNbr == bBidColumn)
+						callBBid.push_back(dColumn);
+					else if (columnNbr == bOfferColumn)
+						callBOffer.push_back(dColumn);
+					else if (columnNbr == oVolumeColumn)
+						callOpVolume.push_back(dColumn);
+					else if (columnNbr == ooiColumn)
+						callOoi.push_back(dColumn);
+					else if (columnNbr == iVolColumn)
+						callImpVol.push_back(dColumn);
+					else if (columnNbr == deltaColumn)
+						callDelta.push_back(dColumn);
+					else if (columnNbr == gammaColumn)
+						callGamma.push_back(dColumn);
+					else if (columnNbr == vegaColumn)
+						callVega.push_back(dColumn);
+					else if (columnNbr == thetaColumn)
+						callTheta.push_back(dColumn);
+
+				}
+
+			}
+		}
+		else{ //we have a put
+			srow.clear(); //get rid of failbit.
+			srow << row;
+			while (getline(srow, column, ',')){
+				++columnNbr;
+				if (columnNbr == dateColumn)
+					putDate.push_back(DMYToExcelSerialDate(column));
+				else{
+					dColumn = atof(column.c_str());
+					if (columnNbr == closeColumn)
+						putClose.push_back(dColumn);
+					else if (columnNbr == exDateColumn)
+						putExDate.push_back(dColumn);
+					else if (columnNbr == strikeColumn)
+						putStrike.push_back(dColumn);
+					else if (columnNbr == bBidColumn)
+						putBBid.push_back(dColumn);
+					else if (columnNbr == bOfferColumn)
+						putBOffer.push_back(dColumn);
+					else if (columnNbr == oVolumeColumn)
+						putOpVolume.push_back(dColumn);
+					else if (columnNbr == ooiColumn)
+						putOoi.push_back(dColumn);
+					else if (columnNbr == iVolColumn)
+						putImpVol.push_back(dColumn);
+					else if (columnNbr == deltaColumn)
+						putDelta.push_back(dColumn);
+					else if (columnNbr == gammaColumn)
+						putGamma.push_back(dColumn);
+					else if (columnNbr == vegaColumn)
+						putVega.push_back(dColumn);
+					else if (columnNbr == thetaColumn)
+						putTheta.push_back(dColumn);
+}
+
+				}
+
+			}
+		}
+//salut bolos
+
+	}
+	for (unsigned int j=0; j < callVega.size(); j++)
+		{
+			cout << callDate[j] << ',' << callClose[j] << ','<< callStrike[j] << ','
+					<< callImpVol[j] << ',' << callDelta[j] << endl;
+		}
+
+
+	return (0);
+}

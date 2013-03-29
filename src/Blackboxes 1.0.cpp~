@@ -1,0 +1,57 @@
+//============================================================================
+// Name        : Blackboxes 1.0.cpp
+// Author      : John-David Wuarin
+// Version     : 1.0
+// Copyright   : Your copyright notice
+// Description : This program will allow a user to easily test and implement any trading strategy he/she
+//				 has in mind. It will be clean and easy to edit. And will allow a user to easily implement any
+//				 trading strategy by writing just the few lines of code required for the strategy.
+//============================================================================
+
+
+#include "blackBoxes_prot.h"
+
+
+using namespace std;
+
+int main()
+{
+
+
+	cout << "How many assets will you be performing your analysis on?\n"
+			"and in what style?\nType: " << endl;
+	cout << "1. To open a single asset (e.g. options files (containing calls and\n"
+			"puts for one asset." << endl <<
+			"2. To open all the files in a folder and compare performances of\n"
+			"strategies on the different assets." << endl <<
+			"3. To open file and file containing indicator..." << endl;
+	int i=0;
+
+	while (i == 0){
+		cin.clear();
+		cin >> i;
+		switch(i){
+		case 1:
+			singleAsset();
+			break;
+		case 2:
+			multipleAssets();
+			break;
+		case 3:
+			break;
+		default:
+			cout << "Please enter a number between 1 and ..." << endl;
+			i = 0;
+			break;
+		}
+	}
+
+
+
+
+	//singleAsset();
+
+
+
+	return 0;
+}
